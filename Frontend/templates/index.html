@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FaceGuard — Access Control</title>
+  <style>
+    /* ── Reset & Variables ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0e17;
+      --surface:   #111827;
+      --border:    #1e2d45;
+      --accent:    #00d4ff;
+      --success:   #10b981;
+      --danger:    #ef4444;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --font:      'Courier New', monospace;
+    }
+
+    body {
+      font-family: var(--font);
+      background:  var(--bg);
+      color:       var(--text);
+      min-height:  100vh;
+      display:     flex;
+      flex-direction: column;
+      align-items: center;
+      padding:     2rem 1rem;
+    }
+
+    /* ── Header ── */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    header h1 {
+      font-size: 2rem;
+      letter-spacing: .15em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    header p {
+      color: var(--muted);
+      font-size: .85rem;
+      margin-top: .4rem;
+      letter-spacing: .1em;
+    }
+
+    /* ── Main card ── */
+    .card {
+      background:    var(--surface);
+      border:        1px solid var(--border);
+      border-radius: 12px;
+      padding:       2rem;
+      width:         100%;
+      max-width:     520px;
+    }
+
+    /* ── Camera feed ── */
+    .camera-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 2px solid var(--border);
+    }
+    #video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    #canvas { display: none; }
+
+    /* scanning overlay */
+    .scan-line {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: scan 1.8s ease-in-out infinite;
+    }
+    @keyframes scan {
+      0%   { top: 0; }
+      50%  { top: calc(100% - 3px); }
+      100% { top: 0; }
+    }
+
+    /* face guide box */
+    .face-guide {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 180px; height: 220px;
+      border: 2px dashed var(--accent);
+      border-radius: 50% / 40%;
+      opacity: .45;
+      pointer-events: none;
+    }
+
+    /* ── Status badge ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      margin: 1.2rem 0;
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      font-size: .85rem;
+      letter-spacing: .05em;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background .3s;
+    }
+    .dot.active  { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .dot.success { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .dot.danger  { background: var(--danger);  box-shadow: 0 0 8px var(--danger); }
+
+    /* ── Buttons ── */
+    .btn-row { display: flex; gap: .8rem; margin-top: .4rem; }
+    button {
+      flex: 1;
+      padding: .75rem;
+      border: none;
+      border-radius: 8px;
+      font-family: var(--font);
+      font-size: .9rem;
+      letter-spacing: .08em;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      text-transform: uppercase;
+    }
+    button:active { transform: scale(.97); }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    #btn-start  { background: var(--accent);   color: #000; font-weight: bold; }
+    #btn-verify { background: var(--success);  color: #fff; font-weight: bold; }
+    #btn-stop   { background: transparent; border: 1px solid var(--muted); color: var(--muted); }
+
+    /* ── Result panel ── */
+    #result {
+      display: none;
+      margin-top: 1.4rem;
+      padding: 1.2rem;
+      border-radius: 10px;
+      text-align: center;
+      animation: fadeIn .4s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    #result.granted { background: rgba(16,185,129,.12); border: 1px solid var(--success); }
+    #result.denied  { background: rgba(239, 68, 68,.12); border: 1px solid var(--danger); }
+    #result.error   { background: rgba(100,116,139,.12); border: 1px solid var(--muted); }
+
+    #result .verdict {
+      font-size: 2rem;
+      font-weight: bold;
+      letter-spacing: .1em;
+    }
+    .granted .verdict { color: var(--success); }
+    .denied  .verdict { color: var(--danger); }
+    .error   .verdict { color: var(--muted); }
+
+    #result .detail {
+      margin-top: .5rem;
+      font-size: .8rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── Token form ── */
+    .token-section {
+      margin-bottom: 1.2rem;
+    }
+    .token-section label {
+      display: block;
+      font-size: .75rem;
+      color: var(--muted);
+      letter-spacing: .08em;
+      margin-bottom: .3rem;
+    }
+    .token-section input {
+      width: 100%;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: .55rem .8rem;
+      font-family: var(--font);
+      font-size: .8rem;
+      outline: none;
+    }
+    .token-section input:focus { border-color: var(--accent); }
+
+    footer {
+      margin-top: 2rem;
+      font-size: .72rem;
+      color: var(--muted);
+      letter-spacing: .08em;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ FaceGuard</h1>
+  <p>Biometric Access Control System</p>
+</header>
+
+<div class="card">
+
+  <!-- JWT Token input -->
+  <div class="token-section">
+    <label>ACCESS TOKEN (Bearer JWT)</label>
+    <input id="token-input" type="password" placeholder="Paste your JWT access token…" />
+  </div>
+
+  <!-- Camera feed -->
+  <div class="camera-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="scan-line" id="scan-line"></div>
+    <div class="face-guide"></div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="dot" id="dot"></div>
+    <span id="status-text">Camera inactive. Press START to begin.</span>
+  </div>
+
+  <!-- Buttons -->
+  <div class="btn-row">
+    <button id="btn-start">Start Camera</button>
+    <button id="btn-verify" disabled>Verify Face</button>
+    <button id="btn-stop"   disabled>Stop</button>
+  </div>
+
+  <!-- Result -->
+  <div id="result"></div>
+
+</div>
+
+<footer>FaceGuard v1.0 · Phase 1 · All frames processed locally before upload</footer>
+
+<script>
+  // ── DOM refs ─────────────────────────────────────────────────────────── //
+  const video      = document.getElementById('video');
+  const canvas     = document.getElementById('canvas');
+  const scanLine   = document.getElementById('scan-line');
+  const dot        = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const btnStart   = document.getElementById('btn-start');
+  const btnVerify  = document.getElementById('btn-verify');
+  const btnStop    = document.getElementById('btn-stop');
+  const resultDiv  = document.getElementById('result');
+  const tokenInput = document.getElementById('token-input');
+
+  let stream       = null;
+  let capturedFrames = [];
+
+  // ── Helpers ──────────────────────────────────────────────────────────── //
+  function setStatus(msg, state = '') {
+    statusText.textContent = msg;
+    dot.className = 'dot ' + state;
+  }
+
+  function showResult(data) {
+    resultDiv.style.display = 'block';
+    resultDiv.className     = '';
+
+    if (data.outcome === 'granted') {
+      resultDiv.classList.add('granted');
+      resultDiv.innerHTML = `
+        <div class="verdict">✓ ACCESS GRANTED</div>
+        <div class="detail">
+          ${data.person ? `<strong>${data.person.name}</strong> — ${data.person.department || 'N/A'}` : ''}
+          <br>Confidence: ${(data.confidence * 100).toFixed(1)}%
+          &nbsp;|&nbsp;Distance: ${data.distance}
+          <br>Liveness: ${data.liveness.passed ? '✓ Live' : '✗ Spoofed'}
+        </div>`;
+    } else if (data.outcome === 'denied') {
+      resultDiv.classList.add('denied');
+      const reason = data.reason === 'liveness_failed'
+        ? 'Liveness check failed — please blink naturally.'
+        : 'Face not recognised.';
+      resultDiv.innerHTML = `
+        <div class="verdict">✗ ACCESS DENIED</div>
+        <div class="detail">${reason}</div>`;
+    } else {
+      resultDiv.classList.add('error');
+      resultDiv.innerHTML = `
+        <div class="verdict">⚠ ERROR</div>
+        <div class="detail">${data.detail || 'Unexpected error. Try again.'}</div>`;
+    }
+  }
+
+  // ── Capture frame from video ──────────────────────────────────────────── //
+  function captureFrame() {
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.85);  // base64
+  }
+
+  // ── Collect ~5 frames over 1 second for liveness ─────────────────────── //
+  async function collectFrames(count = 5, interval = 200) {
+    capturedFrames = [];
+    setStatus('Collecting frames for liveness check…', 'active');
+    return new Promise(resolve => {
+      let i = 0;
+      const id = setInterval(() => {
+        capturedFrames.push(captureFrame());
+        i++;
+        if (i >= count) {
+          clearInterval(id);
+          resolve(capturedFrames);
+        }
+      }, interval);
+    });
+  }
+
+  // ── Camera controls ───────────────────────────────────────────────────── //
+  btnStart.addEventListener('click', async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      video.srcObject = stream;
+      setStatus('Camera active. Position face in the guide and press VERIFY.', 'active');
+      scanLine.style.display = 'block';
+      btnStart.disabled  = true;
+      btnVerify.disabled = false;
+      btnStop.disabled   = false;
+      resultDiv.style.display = 'none';
+    } catch (err) {
+      setStatus('Camera access denied: ' + err.message, 'danger');
+    }
+  });
+
+  btnStop.addEventListener('click', () => {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    video.srcObject = null;
+    scanLine.style.display = 'none';
+    setStatus('Camera stopped.', '');
+    btnStart.disabled  = false;
+    btnVerify.disabled = true;
+    btnStop.disabled   = true;
+  });
+
+  // ── Verify face ───────────────────────────────────────────────────────── //
+  btnVerify.addEventListener('click', async () => {
+    const token = tokenInput.value.trim();
+    if (!token) {
+      setStatus('Please paste a JWT access token first.', 'danger');
+      return;
+    }
+
+    btnVerify.disabled = true;
+    resultDiv.style.display = 'none';
+
+    const frames = await collectFrames(5, 200);
+    setStatus('Sending to server…', 'active');
+
+    try {
+      const response = await fetch('/api/verify-face/', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: JSON.stringify({ frames, camera_id: 'web-client' }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setStatus('Server error: ' + (data.detail || response.status), 'danger');
+        showResult({ outcome: 'error', detail: JSON.stringify(data) });
+      } else {
+        const state = data.outcome === 'granted' ? 'success' : 'danger';
+        setStatus(data.outcome === 'granted' ? 'Verification complete.' : 'Verification failed.', state);
+        showResult(data);
+      }
+    } catch (err) {
+      setStatus('Network error: ' + err.message, 'danger');
+      showResult({ outcome: 'error', detail: err.message });
+    } finally {
+      btnVerify.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>

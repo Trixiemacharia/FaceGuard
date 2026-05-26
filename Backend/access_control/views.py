@@ -1,3 +1,13 @@
-from django.shortcuts import render
+from rest_framework import generics, permissions
+from .models import AccessPoint
+from .serializers import AccessPointSerializer
 
-# Create your views here.
+class AccessPointListView(generics.ListCreateAPIView):
+    queryset = AccessPoint.objects.all()
+    serializer_class = AccessPointSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+class AccessPointDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = AccessPoint.objects.all()
+    serializer_class = AccessPointSerializer
+    permission_classes = [permissions.IsAdminUser]

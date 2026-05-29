@@ -48,10 +48,13 @@ INSTALLED_APPS = [
     'logs',
     'access_control',
     'alerts',
+    'zones',
+    'reports',
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -66,6 +69,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'faceguard.urls'
+ASGI_APPLICATION = 'faceguard.asgi.application'
 
 TEMPLATES = [
     {
@@ -84,6 +88,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'faceguard.wsgi.application'
+
 
 
 # Database
@@ -177,9 +182,35 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
 }
 
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+
+CHANNEL_LAYERS ={
+    'default':{
+        'BACKEND':'channels_redis.core.RedisChannelLayer',
+        'CONFIG':{'hosts':[REDIS_URL]},
+    }
+}
+
+EMAIL_BACKEND       = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST          = config('EMAIL_HOST',     default='smtp.gmail.com')
+EMAIL_PORT          = config('EMAIL_PORT',     default=587, cast=int)
+EMAIL_USE_TLS       = config('EMAIL_USE_TLS',  default=True, cast=bool)
+EMAIL_HOST_USER     = config('EMAIL_HOST_USER',     default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL  = config('DEFAULT_FROM_EMAIL',  default='faceguard@example.com')
+ 
+ALERT_EMAIL = {'RECIPIENTS': config('ALERT_EMAIL_RECIPIENTS', default='').split(',')}
+ 
+TWILIO = {
+    'ACCOUNT_SID': config('TWILIO_ACCOUNT_SID',  default=''),
+    'AUTH_TOKEN':  config('TWILIO_AUTH_TOKEN',   default=''),
+    'FROM_NUMBER': config('TWILIO_FROM_NUMBER',  default=''),
+    'TO_NUMBERS':  config('TWILIO_TO_NUMBERS',   default='').split(','),
+}
+
 #celery
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -211,24 +242,11 @@ FACE_RECOGNITION = {
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '[{levelname}] {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
-        },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
+    'formatters': {'verbose': {'format': '[{levelname}] {asctime} {module} {message}', 'style': '{'}},
+    'handlers':   {'console': {'class': 'logging.StreamHandler', 'formatter': 'verbose'}},
+    'root':       {'handlers': ['console'], 'level': 'INFO'},
     'loggers': {
-        'django': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'django':      {'handlers': ['console'], 'level': 'INFO',  'propagate': False},
         'recognition': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
     },
 }

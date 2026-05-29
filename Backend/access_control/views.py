@@ -1,5 +1,5 @@
 from rest_framework import generics, permissions
-from .models import AccessPoint
+from .models import AccessPoint, AccessEvent
 from .serializers import AccessPointSerializer
 
 class AccessPointListView(generics.ListCreateAPIView):

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FaceGuard — Admin Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#0a0e17; --surface:#111827; --surface2:#1a2235;
+      --border:#1e2d45; --accent:#00d4ff; --success:#10b981;
+      --danger:#ef4444; --warning:#f59e0b; --text:#e2e8f0; --muted:#64748b;
+      --font:'Courier New',monospace;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+    /* ── Top nav ── */
+    nav{background:var(--surface);border-bottom:1px solid var(--border);padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between}
+    nav h1{color:var(--accent);letter-spacing:.15em;font-size:1.1rem}
+    nav .nav-links a{color:var(--muted);text-decoration:none;margin-left:1.5rem;font-size:.8rem;letter-spacing:.08em}
+    nav .nav-links a:hover{color:var(--accent)}
+    .ws-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:.4rem}
+    .ws-dot.connected{background:var(--success);box-shadow:0 0 6px var(--success)}
+
+    /* ── Layout ── */
+    main{flex:1;padding:1.5rem 2rem;display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
+
+    /* ── Stat cards ── */
+    .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem;display:flex;flex-direction:column;gap:.4rem}
+    .stat-card .label{font-size:.7rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+    .stat-card .value{font-size:2rem;font-weight:bold}
+    .stat-card.total   .value{color:var(--accent)}
+    .stat-card.granted .value{color:var(--success)}
+    .stat-card.denied  .value{color:var(--danger)}
+    .stat-card.rate    .value{color:var(--warning)}
+
+    /* ── Charts row ── */
+    .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem;grid-column:span 2}
+    .chart-card h3{font-size:.8rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:1rem}
+    .chart-card canvas{max-height:220px}
+
+    /* ── Live feed ── */
+    .feed-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem;grid-column:span 4}
+    .feed-card h3{font-size:.8rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.8rem;display:flex;justify-content:space-between}
+    .feed-table{width:100%;border-collapse:collapse;font-size:.78rem}
+    .feed-table th{text-align:left;padding:.5rem .75rem;color:var(--muted);border-bottom:1px solid var(--border);font-weight:normal}
+    .feed-table td{padding:.5rem .75rem;border-bottom:1px solid rgba(255,255,255,.04)}
+    .feed-table tr:hover td{background:rgba(255,255,255,.03)}
+    .badge{display:inline-block;padding:.15rem .5rem;border-radius:4px;font-size:.7rem;font-weight:bold;letter-spacing:.05em}
+    .badge.granted{background:rgba(16,185,129,.15);color:var(--success)}
+    .badge.denied {background:rgba(239,68,68,.15); color:var(--danger)}
+    .badge.error  {background:rgba(100,116,139,.15);color:var(--muted)}
+
+    /* ── Token bar ── */
+    .token-bar{background:var(--surface);border-top:1px solid var(--border);padding:.75rem 2rem;display:flex;align-items:center;gap:1rem;font-size:.78rem}
+    .token-bar input{flex:1;max-width:420px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:.4rem .7rem;font-family:var(--font);font-size:.75rem;outline:none}
+    .token-bar input:focus{border-color:var(--accent)}
+    .token-bar button{background:var(--accent);color:#000;border:none;border-radius:6px;padding:.4rem 1rem;font-family:var(--font);font-size:.75rem;cursor:pointer;font-weight:bold}
+  </style>
+</head>
+<body>
+
+<nav>
+  <h1>⬡ FACEGUARD ADMIN</h1>
+  <div class="nav-links">
+    <span class="ws-dot" id="ws-dot"></span><span id="ws-status" style="font-size:.75rem;color:var(--muted)">Disconnected</span>
+    <a href="/admin/">Django Admin</a>
+    <a href="/api/reports/access-log/csv/">Export CSV</a>
+    <a href="/api/reports/access-log/pdf/">Export PDF</a>
+    <a href="guard.html">Guard View</a>
+  </div>
+</nav>
+
+<main>
+  <!-- Stat cards -->
+  <div class="stat-card total">
+    <div class="label">Total Events (24h)</div>
+    <div class="value" id="stat-total">—</div>
+  </div>
+  <div class="stat-card granted">
+    <div class="label">Granted</div>
+    <div class="value" id="stat-granted">—</div>
+  </div>
+  <div class="stat-card denied">
+    <div class="label">Denied</div>
+    <div class="value" id="stat-denied">—</div>
+  </div>
+  <div class="stat-card rate">
+    <div class="label">Grant Rate</div>
+    <div class="value" id="stat-rate">—</div>
+  </div>
+
+  <!-- Hourly chart -->
+  <div class="chart-card">
+    <h3>Hourly Access Events</h3>
+    <canvas id="chart-hourly"></canvas>
+  </div>
+
+  <!-- Zone chart -->
+  <div class="chart-card">
+    <h3>Events by Zone</h3>
+    <canvas id="chart-zones"></canvas>
+  </div>
+
+  <!-- Live feed -->
+  <div class="feed-card">
+    <h3>
+      Live Access Feed
+      <span style="color:var(--muted);font-weight:normal" id="feed-count">0 events</span>
+    </h3>
+    <table class="feed-table">
+      <thead>
+        <tr>
+          <th>Time</th><th>Person</th><th>Zone</th><th>Camera</th>
+          <th>Outcome</th><th>Confidence</th><th>Liveness</th>
+        </tr>
+      </thead>
+      <tbody id="feed-body"></tbody>
+    </table>
+  </div>
+</main>
+
+<!-- Token bar -->
+<div class="token-bar">
+  <label for="token-in">JWT Token:</label>
+  <input id="token-in" type="password" placeholder="Paste access token to connect…"/>
+  <button onclick="connect()">Connect</button>
+  <button onclick="loadStats()" style="background:var(--surface);color:var(--muted);border:1px solid var(--border)">Refresh Stats</button>
+</div>
+
+<script>
+  let ws = null;
+  let hourlyChart = null;
+  let zoneChart   = null;
+  let eventCount  = 0;
+  const MAX_ROWS  = 50;
+
+  // ── Charts ─────────────────────────────────────────────────────── //
+  function initCharts() {
+    const chartOpts = {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2d45' } },
+        y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2d45' }, beginAtZero: true },
+      },
+    };
+
+    hourlyChart = new Chart(document.getElementById('chart-hourly'), {
+      type: 'bar',
+      data: { labels: [], datasets: [{ data: [], backgroundColor: 'rgba(0,212,255,.5)', borderColor: '#00d4ff', borderWidth: 1 }] },
+      options: chartOpts,
+    });
+
+    zoneChart = new Chart(document.getElementById('chart-zones'), {
+      type: 'doughnut',
+      data: { labels: [], datasets: [{ data: [], backgroundColor: ['#00d4ff','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899'] }] },
+      options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 10 } } } } },
+    });
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────── //
+  async function loadStats() {
+    const token = document.getElementById('token-in').value.trim();
+    if (!token) return;
+    try {
+      const r = await fetch('/api/zones/stats/?hours=24', {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      const d = await r.json();
+      document.getElementById('stat-total').textContent   = d.total;
+      document.getElementById('stat-granted').textContent = d.granted;
+      document.getElementById('stat-denied').textContent  = d.denied;
+      document.getElementById('stat-rate').textContent    = d.grant_rate + '%';
+
+      hourlyChart.data.labels   = d.by_hour.map(h => h.hour);
+      hourlyChart.data.datasets[0].data = d.by_hour.map(h => h.count);
+      hourlyChart.update();
+
+      zoneChart.data.labels   = d.by_zone.map(z => z.zone__name || 'Unknown');
+      zoneChart.data.datasets[0].data = d.by_zone.map(z => z.total);
+      zoneChart.update();
+    } catch(e) { console.error('Stats fetch failed', e); }
+  }
+
+  // ── Feed row ───────────────────────────────────────────────────── //
+  function addRow(ev, prepend = true) {
+    const tbody = document.getElementById('feed-body');
+    const tr    = document.createElement('tr');
+    const time  = new Date(ev.created_at).toLocaleTimeString();
+    const conf  = ev.confidence ? (ev.confidence * 100).toFixed(1) + '%' : '—';
+
+    tr.innerHTML = `
+      <td>${time}</td>
+      <td>${ev.person_name || '<em style="color:var(--muted)">Unknown</em>'}</td>
+      <td>${ev.zone_name || '—'}</td>
+      <td style="color:var(--muted)">${ev.camera_id || '—'}</td>
+      <td><span class="badge ${ev.outcome}">${ev.outcome.toUpperCase()}</span></td>
+      <td>${conf}</td>
+      <td style="color:${ev.liveness_pass ? 'var(--success)' : 'var(--danger)'}">${ev.liveness_pass ? '✓' : '✗'}</td>
+    `;
+
+    if (prepend && tbody.firstChild) tbody.insertBefore(tr, tbody.firstChild);
+    else tbody.appendChild(tr);
+
+    // Cap at MAX_ROWS
+    while (tbody.rows.length > MAX_ROWS) tbody.deleteRow(tbody.rows.length - 1);
+
+    eventCount++;
+    document.getElementById('feed-count').textContent = eventCount + ' events';
+  }
+
+  // ── WebSocket ──────────────────────────────────────────────────── //
+  function connect() {
+    const token = document.getElementById('token-in').value.trim();
+    if (!token) { alert('Paste a JWT token first.'); return; }
+    if (ws) ws.close();
+
+    // Pass token as query param (Channels AuthMiddleware reads cookies/session;
+    // for JWT we'll add query-param auth in a later phase — for now connect and handle 4003)
+    ws = new WebSocket(`ws://${location.host}/ws/access-feed/?token=${encodeURIComponent(token)}`);
+
+    ws.onopen = () => {
+      document.getElementById('ws-dot').classList.add('connected');
+      document.getElementById('ws-status').textContent = 'Connected';
+      loadStats();
+    };
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'history') {
+        msg.events.forEach(ev => addRow(ev, false));
+      } else if (msg.type === 'event') {
+        addRow(msg.data, true);
+        loadStats();
+      }
+    };
+
+    ws.onclose = () => {
+      document.getElementById('ws-dot').classList.remove('connected');
+      document.getElementById('ws-status').textContent = 'Disconnected';
+    };
+
+    ws.onerror = () => {
+      document.getElementById('ws-status').textContent = 'Error';
+    };
+  }
+
+  initCharts();
+</script>
+</body>
+</html>

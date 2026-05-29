@@ -83,3 +83,36 @@ wcwidth==0.7.0
 Werkzeug==3.1.8
 wheel==0.47.0
 wrapt==2.1.2
+
+#phase 2
+# FaceGuard — Phase 2 dependencies
+
+# Core
+Django>=4.2,<5.0
+djangorestframework>=3.14
+djangorestframework-simplejwt>=5.3
+python-decouple>=3.8
+
+# Database
+mysqlclient>=2.2
+
+# Face recognition
+deepface>=0.0.89
+opencv-python>=4.8
+Pillow>=10.0
+
+# Async / WebSocket
+celery>=5.3
+redis>=5.0
+channels>=4.0
+channels-redis>=4.1
+daphne>=4.0
+
+# Reports
+reportlab>=4.0
+
+# SMS (optional)
+# twilio>=8.0
+
+# Dev tools
+# django-extensions>=3.2

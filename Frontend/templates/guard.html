@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FaceGuard — Guard Station</title>
+  <style>
+    :root{--bg:#060a12;--surface:#0d1424;--border:#1a2640;--accent:#00d4ff;--success:#10b981;--danger:#ef4444;--text:#e2e8f0;--muted:#4b5f7a;--font:'Courier New',monospace}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between}
+    header h1{color:var(--accent);letter-spacing:.2em;font-size:1rem}
+    .clock{font-size:1.5rem;color:var(--text);letter-spacing:.1em}
+    .ws-status{font-size:.75rem;color:var(--muted);display:flex;align-items:center;gap:.4rem}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+    .dot.on{background:var(--success);box-shadow:0 0 8px var(--success);animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+    .content{flex:1;display:grid;grid-template-columns:1fr 340px;gap:1px;background:var(--border)}
+
+    /* ── Event feed ── */
+    .feed-panel{background:var(--bg);padding:1.5rem;overflow-y:auto;max-height:calc(100vh - 65px)}
+    .feed-panel h2{font-size:.75rem;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-bottom:1rem}
+
+    .event-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin-bottom:.7rem;display:flex;align-items:center;gap:1rem;animation:slideIn .3s ease}
+    @keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+    .event-card.granted{border-left:3px solid var(--success)}
+    .event-card.denied {border-left:3px solid var(--danger)}
+    .event-card.error  {border-left:3px solid var(--muted)}
+
+    .outcome-icon{font-size:1.8rem;flex-shrink:0}
+    .event-info{flex:1;min-width:0}
+    .event-name{font-size:.95rem;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .event-meta{font-size:.72rem;color:var(--muted);margin-top:.2rem}
+    .event-time{font-size:.7rem;color:var(--muted);flex-shrink:0;text-align:right}
+    .conf-badge{font-size:.7rem;padding:.15rem .45rem;border-radius:4px;margin-top:.3rem;display:inline-block}
+    .granted .conf-badge{background:rgba(16,185,129,.15);color:var(--success)}
+    .denied  .conf-badge{background:rgba(239,68,68,.15);color:var(--danger)}
+
+    /* ── Stats panel ── */
+    .stats-panel{background:var(--surface);padding:1.5rem;display:flex;flex-direction:column;gap:1rem}
+    .stats-panel h2{font-size:.75rem;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+    .big-stat{text-align:center;padding:1rem;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
+    .big-stat .num{font-size:3rem;font-weight:bold;color:var(--accent)}
+    .big-stat .lbl{font-size:.7rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+    .mini-stats{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+    .mini-stat{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.8rem;text-align:center}
+    .mini-stat .num{font-size:1.6rem;font-weight:bold}
+    .mini-stat.g .num{color:var(--success)}
+    .mini-stat.d .num{color:var(--danger)}
+    .mini-stat .lbl{font-size:.65rem;color:var(--muted);letter-spacing:.08em}
+
+    /* ── Token input ── */
+    .token-bar{background:var(--surface);border-top:1px solid var(--border);padding:.6rem 1.5rem;display:flex;gap:.8rem;align-items:center}
+    .token-bar input{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.35rem .6rem;font-family:var(--font);font-size:.75rem;outline:none}
+    .token-bar button{background:var(--accent);color:#000;border:none;border-radius:5px;padding:.35rem .8rem;font-family:var(--font);font-size:.75rem;cursor:pointer;font-weight:bold}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ FACEGUARD — GUARD STATION</h1>
+  <div class="clock" id="clock">00:00:00</div>
+  <div class="ws-status">
+    <div class="dot" id="dot"></div>
+    <span id="ws-label">Offline</span>
+  </div>
+</header>
+
+<div class="content">
+
+  <!-- Live event feed -->
+  <div class="feed-panel">
+    <h2>Live Access Events</h2>
+    <div id="events"></div>
+  </div>
+
+  <!-- Stats sidebar -->
+  <div class="stats-panel">
+    <h2>Session Stats</h2>
+    <div class="big-stat">
+      <div class="num" id="s-total">0</div>
+      <div class="lbl">Total Events</div>
+    </div>
+    <div class="mini-stats">
+      <div class="mini-stat g">
+        <div class="num" id="s-granted">0</div>
+        <div class="lbl">Granted</div>
+      </div>
+      <div class="mini-stat d">
+        <div class="num" id="s-denied">0</div>
+        <div class="lbl">Denied</div>
+      </div>
+    </div>
+
+    <div style="margin-top:auto">
+      <div style="font-size:.7rem;color:var(--muted);margin-bottom:.5rem;letter-spacing:.08em">LAST EVENT</div>
+      <div id="last-event" style="font-size:.8rem;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.7rem;min-height:60px">
+        Waiting for events…
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="token-bar">
+  <label style="font-size:.75rem;color:var(--muted)">Token:</label>
+  <input id="tok" type="password" placeholder="Paste JWT access token…"/>
+  <button onclick="connect()">Connect</button>
+</div>
+
+<script>
+  // Clock
+  setInterval(() => {
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
+  }, 1000);
+
+  let counts = {total:0, granted:0, denied:0};
+  let ws = null;
+  const MAX_CARDS = 30;
+
+  function addEvent(ev) {
+    const outcome = ev.outcome;
+    counts.total++;
+    if (outcome === 'granted') counts.granted++;
+    if (outcome === 'denied')  counts.denied++;
+
+    document.getElementById('s-total').textContent   = counts.total;
+    document.getElementById('s-granted').textContent = counts.granted;
+    document.getElementById('s-denied').textContent  = counts.denied;
+
+    const icon = outcome === 'granted' ? '✓' : outcome === 'denied' ? '✗' : '⚠';
+    const time = new Date(ev.created_at).toLocaleTimeString('en-GB');
+    const conf = ev.confidence ? (ev.confidence * 100).toFixed(1) + '%' : '—';
+    const name = ev.person_name || 'Unknown Person';
+
+    const card = document.createElement('div');
+    card.className = `event-card ${outcome}`;
+    card.innerHTML = `
+      <div class="outcome-icon">${icon}</div>
+      <div class="event-info">
+        <div class="event-name">${name}</div>
+        <div class="event-meta">${ev.zone_name || 'No zone'} · ${ev.camera_id || '—'}</div>
+        <span class="conf-badge">${conf} confidence</span>
+      </div>
+      <div class="event-time">${time}</div>
+    `;
+
+    const container = document.getElementById('events');
+    container.insertBefore(card, container.firstChild);
+    while (container.children.length > MAX_CARDS) container.lastChild.remove();
+
+    document.getElementById('last-event').innerHTML =
+      `<strong>${name}</strong> — ${outcome.toUpperCase()}<br>
+       <span style="color:var(--muted);font-size:.7rem">${ev.zone_name || '—'} · ${time}</span>`;
+  }
+
+  function connect() {
+    const token = document.getElementById('tok').value.trim();
+    if (!token) { alert('Paste a JWT token first.'); return; }
+    if (ws) ws.close();
+
+    ws = new WebSocket(`ws://${location.host}/ws/access-feed/?token=${encodeURIComponent(token)}`);
+
+    ws.onopen = () => {
+      document.getElementById('dot').classList.add('on');
+      document.getElementById('ws-label').textContent = 'Live';
+    };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'history') msg.events.slice().reverse().forEach(addEvent);
+      else if (msg.type === 'event') addEvent(msg.data);
+    };
+    ws.onclose = () => {
+      document.getElementById('dot').classList.remove('on');
+      document.getElementById('ws-label').textContent = 'Offline';
+    };
+  }
+</script>
+</body>
+</html>

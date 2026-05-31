@@ -179,7 +179,7 @@
       line-height: 1.6;
     }
 
-    /* ── Token form ── */
+    /* ── Login form ── */
     .token-section {
       margin-bottom: 1.2rem;
     }
@@ -220,10 +220,12 @@
 
 <div class="card">
 
-  <!-- JWT Token input -->
+  <!-- Login input -->
   <div class="token-section">
-    <label>ACCESS TOKEN (Bearer JWT)</label>
-    <input id="token-input" type="password" placeholder="Paste your JWT access token…" />
+    <label>Email</label>
+    <input id="email-input" type="email" placeholder="you@company.com" autocomplete="email" />
+    <label style="margin-top:.7rem">Password</label>
+    <input id="password-input" type="password" placeholder="Enter your password" autocomplete="current-password" />
   </div>
 
   <!-- Camera feed -->
@@ -265,10 +267,13 @@
   const btnVerify  = document.getElementById('btn-verify');
   const btnStop    = document.getElementById('btn-stop');
   const resultDiv  = document.getElementById('result');
-  const tokenInput = document.getElementById('token-input');
+  const emailInput = document.getElementById('email-input');
+  const passwordInput = document.getElementById('password-input');
 
   let stream       = null;
   let capturedFrames = [];
+  let accessToken = localStorage.getItem('faceguard_access') || '';
+  let currentUser = JSON.parse(localStorage.getItem('faceguard_user') || 'null');
 
   // ── Helpers ──────────────────────────────────────────────────────────── //
   function setStatus(msg, state = '') {
@@ -289,7 +294,9 @@
           <br>Confidence: ${(data.confidence * 100).toFixed(1)}%
           &nbsp;|&nbsp;Distance: ${data.distance}
           <br>Liveness: ${data.liveness.passed ? '✓ Live' : '✗ Spoofed'}
+          <br>Redirecting to dashboard…
         </div>`;
+      setTimeout(() => { window.location.href = data.redirect_url || '/dashboard/'; }, 900);
     } else if (data.outcome === 'denied') {
       resultDiv.classList.add('denied');
       const reason = data.reason === 'liveness_failed'
@@ -332,6 +339,30 @@
     });
   }
 
+  async function login() {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) {
+      throw new Error('Enter your email and password first.');
+    }
+
+    const response = await fetch('/api/auth/login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || data.error || 'Login failed.');
+    }
+
+    accessToken = data.access;
+    currentUser = data.user;
+    localStorage.setItem('faceguard_access', accessToken);
+    localStorage.setItem('faceguard_user', JSON.stringify(currentUser));
+    return data;
+  }
+
   // ── Camera controls ───────────────────────────────────────────────────── //
   btnStart.addEventListener('click', async () => {
     try {
@@ -361,9 +392,13 @@
 
   // ── Verify face ───────────────────────────────────────────────────────── //
   btnVerify.addEventListener('click', async () => {
-    const token = tokenInput.value.trim();
-    if (!token) {
-      setStatus('Please paste a JWT access token first.', 'danger');
+    try {
+      if (!accessToken) {
+        setStatus('Signing in…', 'active');
+        await login();
+      }
+    } catch (err) {
+      setStatus(err.message, 'danger');
       return;
     }
 
@@ -378,7 +413,7 @@
         method:  'POST',
         headers: {
           'Content-Type':  'application/json',
-          'Authorization': 'Bearer ' + token,
+          'Authorization': 'Bearer ' + accessToken,
         },
         body: JSON.stringify({ frames, camera_id: 'web-client' }),
       });

@@ -53,10 +53,14 @@
 
 <div class="card">
 
-  <!-- Token -->
+  <!-- Admin login -->
   <div class="field">
-    <label>JWT Access Token</label>
-    <input id="token" type="password" placeholder="Paste admin JWT token…"/>
+    <label>Admin Email</label>
+    <input id="admin-email" type="email" placeholder="admin@company.com"/>
+  </div>
+  <div class="field">
+    <label>Admin Password</label>
+    <input id="admin-password" type="password" placeholder="Admin password"/>
   </div>
 
   <!-- Person details -->
@@ -68,6 +72,17 @@
     <div class="field">
       <label>Employee ID</label>
       <input id="emp-id" type="text" placeholder="EMP-001"/>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+    <div class="field">
+      <label>User Email</label>
+      <input id="user-email" type="email" placeholder="jane@company.com"/>
+    </div>
+    <div class="field">
+      <label>User Password</label>
+      <input id="user-password" type="password" placeholder="At least 8 characters"/>
     </div>
   </div>
 
@@ -100,6 +115,7 @@
 
 <script>
   let selectedFiles = [];
+  let accessToken = localStorage.getItem('faceguard_access') || '';
 
   const fileInput = document.getElementById('file-input');
   const dropZone  = document.getElementById('drop-zone');
@@ -142,11 +158,28 @@
   }
 
   async function enrol() {
-    const token = document.getElementById('token').value.trim();
     const name  = document.getElementById('name').value.trim();
-    if (!token)           { alert('Paste a JWT token.'); return; }
     if (!name)            { alert('Name is required.');  return; }
     if (!selectedFiles.length) { alert('Add at least one face image.'); return; }
+
+    if (!accessToken) {
+      const loginResponse = await fetch('/api/auth/login/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: document.getElementById('admin-email').value.trim(),
+          password: document.getElementById('admin-password').value,
+        }),
+      });
+      const loginData = await loginResponse.json();
+      if (!loginResponse.ok || loginData.user.role !== 'admin') {
+        alert(loginData.detail || 'Admin login failed.');
+        return;
+      }
+      accessToken = loginData.access;
+      localStorage.setItem('faceguard_access', accessToken);
+      localStorage.setItem('faceguard_user', JSON.stringify(loginData.user));
+    }
 
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
@@ -158,6 +191,8 @@
 
     const fd = new FormData();
     fd.append('name',        name);
+    fd.append('email',       document.getElementById('user-email').value.trim());
+    fd.append('password',    document.getElementById('user-password').value);
     fd.append('employee_id', document.getElementById('emp-id').value.trim());
     fd.append('department',  document.getElementById('dept').value.trim());
     fd.append('notes',       document.getElementById('notes').value.trim());
@@ -166,7 +201,7 @@
     try {
       const r = await fetch('/api/enrol/', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + token },
+        headers: { Authorization: 'Bearer ' + accessToken },
         body: fd,
       });
       const d = await r.json();

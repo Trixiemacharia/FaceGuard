@@ -11,6 +11,8 @@ import os
 import tempfile
 
 from django.conf import settings
+from django.db.models import Count
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
@@ -27,6 +29,71 @@ from .serializers import (
 )
 
 logger = logging.getLogger('recognition')
+
+
+def _split_name(full_name):
+    parts = full_name.strip().split()
+    first_name = parts[0] if parts else ''
+    last_name = ' '.join(parts[1:]) if len(parts) > 1 else first_name
+    return first_name, last_name
+
+
+def _record_zone_event(*, user, person, outcome, confidence=0.0, camera_id='', liveness_pass=False, reason=''):
+    try:
+        from zones.models import AccessEvent
+        AccessEvent.objects.create(
+            user=user if getattr(user, 'is_authenticated', False) else None,
+            person=person,
+            outcome=outcome,
+            confidence=confidence,
+            camera_id=camera_id,
+            liveness_pass=liveness_pass,
+            denial_reason=reason,
+        )
+    except Exception as exc:
+        logger.warning('Failed to record zone access event: %s', exc)
+
+
+def _flag_repeated_failures(user, camera_id):
+    if not getattr(user, 'is_authenticated', False):
+        return
+
+    window_start = timezone.now() - timezone.timedelta(minutes=15)
+    failures = VerificationLog.objects.filter(
+        requested_by=user,
+        outcome=VerificationLog.Outcome.DENIED,
+        created_at__gte=window_start,
+    ).count()
+
+    if failures < 3:
+        return
+
+    try:
+        from alerts.models import Alert
+        recent_alert = Alert.objects.filter(
+            alert_type=Alert.AlertType.MULTIPLE_FAIL,
+            camera_id=camera_id or 'web-client',
+            created_at__gte=window_start,
+            message__icontains=user.email,
+        ).exists()
+        if recent_alert:
+            return
+
+        message = f'{user.email} has {failures} failed FaceGuard access attempts in the last 15 minutes.'
+        Alert.objects.create(
+            alert_type=Alert.AlertType.MULTIPLE_FAIL,
+            message=message,
+            camera_id=camera_id or 'web-client',
+        )
+
+        try:
+            from zones.tasks import _send_email_alert, _send_sms_alert
+            _send_email_alert(camera_id or 'web-client', 'repeated_failed_attempts', 0.0, user.get_full_name() or user.email)
+            _send_sms_alert(camera_id or 'web-client', 'repeated_failed_attempts', user.get_full_name() or user.email)
+        except Exception as notify_exc:
+            logger.warning('Repeated-failure notification could not be sent: %s', notify_exc)
+    except Exception as exc:
+        logger.warning('Failed to create repeated-failure alert: %s', exc)
 
 
 # ─────────────────────────────── #
@@ -49,7 +116,7 @@ class EnrolView(APIView):
     Stores an embedding for each uploaded face image.
     """
     parser_classes     = [MultiPartParser, FormParser]
-    permission_classes = [IsAdminOrGuard]
+    permission_classes = [permissions.IsAdminUser]
 
     def post(self, request):
         serializer = EnrolmentSerializer(data=request.data)
@@ -69,10 +136,33 @@ class EnrolView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create or update the person record
+        user = None
+        email = data.get('email', '').strip()
+        if email:
+            from users.models import User
+            first_name, last_name = _split_name(data['name'])
+            user, user_created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'role': data.get('role', 'viewer'),
+                },
+            )
+            if user_created:
+                user.set_password(data['password'])
+            else:
+                user.first_name = first_name
+                user.last_name = last_name
+                user.role = data.get('role', user.role)
+                if data.get('password'):
+                    user.set_password(data['password'])
+            user.save()
+
+        lookup = {'user': user} if user else {'employee_id': data.get('employee_id') or None}
         person, created = EnrolledPerson.objects.get_or_create(
-            employee_id = data.get('employee_id') or None,
-            defaults    = {
+            **lookup,
+            defaults={
                 'name':        data['name'],
                 'department':  data.get('department', ''),
                 'enrolled_by': request.user,
@@ -82,6 +172,9 @@ class EnrolView(APIView):
         if not created:
             person.name       = data['name']
             person.department = data.get('department', person.department)
+            person.notes      = data.get('notes', person.notes)
+            if user:
+                person.user = user
             person.save()
 
         embeddings_saved = 0
@@ -116,7 +209,9 @@ class EnrolView(APIView):
 
         return Response({
             'person_id':        person.id,
+            'user_id':          user.id if user else None,
             'name':             person.name,
+            'email':            user.email if user else '',
             'embeddings_saved': embeddings_saved,
             'errors':           errors,
             'created':          created,
@@ -135,7 +230,7 @@ class VerifyFaceView(APIView):
         camera_id  : str        — optional camera identifier
     """
     parser_classes     = [JSONParser]
-    permission_classes = [IsAdminOrGuard]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = VerifyFaceSerializer(data=request.data)
@@ -168,6 +263,15 @@ class VerifyFaceView(APIView):
                 requested_by  = request.user,
                 error_detail  = 'Liveness check failed',
             )
+            _record_zone_event(
+                user=request.user,
+                person=None,
+                outcome='denied',
+                camera_id=camera_id,
+                liveness_pass=False,
+                reason='liveness_failed',
+            )
+            _flag_repeated_failures(request.user, camera_id)
             return Response({
                 'outcome':   'denied',
                 'reason':    'liveness_failed',
@@ -192,6 +296,14 @@ class VerifyFaceView(APIView):
                 requested_by = request.user,
                 error_detail = str(e),
             )
+            _record_zone_event(
+                user=request.user,
+                person=None,
+                outcome='error',
+                camera_id=camera_id,
+                liveness_pass=True,
+                reason=str(e),
+            )
             return Response({'outcome': 'error', 'detail': str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         finally:
             if os.path.exists(tmp_path):
@@ -199,9 +311,16 @@ class VerifyFaceView(APIView):
 
         # 4. Match against DB
         person, confidence, distance = find_best_match(probe_vector)
+        wrong_user = (
+            person
+            and person.user_id
+            and person.user_id != request.user.id
+            and request.user.role not in ('admin', 'guard')
+        )
+
         outcome = (
             VerificationLog.Outcome.GRANTED
-            if person and confidence >= cfg['CONFIDENCE_THRESHOLD']
+            if person and confidence >= cfg['CONFIDENCE_THRESHOLD'] and not wrong_user
             else VerificationLog.Outcome.DENIED
         )
 
@@ -214,14 +333,29 @@ class VerifyFaceView(APIView):
             liveness_pass  = True,
             camera_id      = camera_id,
             requested_by   = request.user,
+            error_detail   = 'Face belongs to another user' if wrong_user else '',
         )
+        _record_zone_event(
+            user=request.user,
+            person=person if outcome == VerificationLog.Outcome.GRANTED else None,
+            outcome=outcome,
+            confidence=confidence,
+            camera_id=camera_id,
+            liveness_pass=True,
+            reason='wrong_user' if wrong_user else ('face_not_recognised' if outcome == VerificationLog.Outcome.DENIED else ''),
+        )
+        if outcome == VerificationLog.Outcome.DENIED:
+            _flag_repeated_failures(request.user, camera_id)
 
         response_data = {
             'outcome':    outcome,
             'confidence': round(confidence, 4),
             'distance':   round(distance, 4),
             'liveness':   {'passed': True, **liveness.__dict__},
+            'redirect_url': '/dashboard/' if outcome == VerificationLog.Outcome.GRANTED else '',
         }
+        if wrong_user:
+            response_data['reason'] = 'wrong_user'
         if person:
             response_data['person'] = {
                 'id':          person.id,

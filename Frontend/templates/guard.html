@@ -51,7 +51,7 @@
     .mini-stat.d .num{color:var(--danger)}
     .mini-stat .lbl{font-size:.65rem;color:var(--muted);letter-spacing:.08em}
 
-    /* ── Token input ── */
+    /* ── Login input ── */
     .token-bar{background:var(--surface);border-top:1px solid var(--border);padding:.6rem 1.5rem;display:flex;gap:.8rem;align-items:center}
     .token-bar input{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.35rem .6rem;font-family:var(--font);font-size:.75rem;outline:none}
     .token-bar button{background:var(--accent);color:#000;border:none;border-radius:5px;padding:.35rem .8rem;font-family:var(--font);font-size:.75rem;cursor:pointer;font-weight:bold}
@@ -105,9 +105,10 @@
 </div>
 
 <div class="token-bar">
-  <label style="font-size:.75rem;color:var(--muted)">Token:</label>
-  <input id="tok" type="password" placeholder="Paste JWT access token…"/>
-  <button onclick="connect()">Connect</button>
+  <label style="font-size:.75rem;color:var(--muted)">Guard Login:</label>
+  <input id="guard-email" type="email" placeholder="guard@company.com"/>
+  <input id="guard-password" type="password" placeholder="Password"/>
+  <button onclick="guardLogin()">Connect</button>
 </div>
 
 <script>
@@ -119,6 +120,7 @@
   let counts = {total:0, granted:0, denied:0};
   let ws = null;
   const MAX_CARDS = 30;
+  let accessToken = localStorage.getItem('faceguard_access') || '';
 
   function addEvent(ev) {
     const outcome = ev.outcome;
@@ -156,12 +158,30 @@
        <span style="color:var(--muted);font-size:.7rem">${ev.zone_name || '—'} · ${time}</span>`;
   }
 
+  async function guardLogin() {
+    const email = document.getElementById('guard-email').value.trim();
+    const password = document.getElementById('guard-password').value;
+    if (!email || !password) { alert('Enter guard email and password.'); return; }
+
+    const r = await fetch('/api/auth/login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.detail || d.error || 'Login failed.'); return; }
+    if (!['admin', 'guard'].includes(d.user.role)) { alert('Only guards or admins can open the guard station.'); return; }
+    accessToken = d.access;
+    localStorage.setItem('faceguard_access', accessToken);
+    localStorage.setItem('faceguard_user', JSON.stringify(d.user));
+    connect();
+  }
+
   function connect() {
-    const token = document.getElementById('tok').value.trim();
-    if (!token) { alert('Paste a JWT token first.'); return; }
+    if (!accessToken) return;
     if (ws) ws.close();
 
-    ws = new WebSocket(`ws://${location.host}/ws/access-feed/?token=${encodeURIComponent(token)}`);
+    ws = new WebSocket(`ws://${location.host}/ws/access-feed/?token=${encodeURIComponent(accessToken)}`);
 
     ws.onopen = () => {
       document.getElementById('dot').classList.add('on');
@@ -177,6 +197,8 @@
       document.getElementById('ws-label').textContent = 'Offline';
     };
   }
+
+  if (accessToken) connect();
 </script>
 </body>
 </html>

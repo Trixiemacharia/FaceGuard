@@ -203,9 +203,9 @@ class TestVerifyFaceAPI:
         r = api_client.post('/api/verify-face/', {'frames': ['dGVzdA==']}, format='json')
         assert r.status_code == 401
 
-    def test_viewer_returns_403(self, viewer_client):
+    def test_viewer_can_attempt_own_face_verification(self, viewer_client):
         r = viewer_client.post('/api/verify-face/', {'frames': ['dGVzdA==']}, format='json')
-        assert r.status_code == 403
+        assert r.status_code == 400
 
     @patch('recognition.views.check_liveness')
     @patch('recognition.views.extract_embedding')

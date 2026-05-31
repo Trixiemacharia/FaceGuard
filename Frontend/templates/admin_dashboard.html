@@ -55,8 +55,16 @@
     /* ── Token bar ── */
     .token-bar{background:var(--surface);border-top:1px solid var(--border);padding:.75rem 2rem;display:flex;align-items:center;gap:1rem;font-size:.78rem}
     .token-bar input{flex:1;max-width:420px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:.4rem .7rem;font-family:var(--font);font-size:.75rem;outline:none}
+    .token-bar select{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:.4rem .7rem;font-family:var(--font);font-size:.75rem;outline:none}
     .token-bar input:focus{border-color:var(--accent)}
     .token-bar button{background:var(--accent);color:#000;border:none;border-radius:6px;padding:.4rem 1rem;font-family:var(--font);font-size:.75rem;cursor:pointer;font-weight:bold}
+    .form-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem;grid-column:span 4}
+    .form-card h3{font-size:.8rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:1rem}
+    .form-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem}
+    .form-grid input,.form-grid select{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:.55rem .7rem;font-family:var(--font);font-size:.78rem;outline:none}
+    .form-grid input:focus,.form-grid select:focus{border-color:var(--accent)}
+    .form-grid button{background:var(--success);color:#fff;border:none;border-radius:6px;padding:.55rem .8rem;font-family:var(--font);font-size:.78rem;cursor:pointer;font-weight:bold}
+    .form-note{font-size:.75rem;color:var(--muted);margin-top:.75rem;min-height:1rem}
   </style>
 </head>
 <body>
@@ -68,7 +76,7 @@
     <a href="/admin/">Django Admin</a>
     <a href="/api/reports/access-log/csv/">Export CSV</a>
     <a href="/api/reports/access-log/pdf/">Export PDF</a>
-    <a href="guard.html">Guard View</a>
+    <a href="/guard/">Guard View</a>
   </div>
 </nav>
 
@@ -89,6 +97,25 @@
   <div class="stat-card rate">
     <div class="label">Grant Rate</div>
     <div class="value" id="stat-rate">—</div>
+  </div>
+
+  <div class="form-card">
+    <h3>Add User and Face</h3>
+    <div class="form-grid">
+      <input id="new-name" type="text" placeholder="Full name"/>
+      <input id="new-email" type="email" placeholder="Email"/>
+      <input id="new-password" type="password" placeholder="Password"/>
+      <select id="new-role">
+        <option value="viewer">Viewer</option>
+        <option value="guard">Guard</option>
+        <option value="admin">Admin</option>
+      </select>
+      <input id="new-employee" type="text" placeholder="Employee ID"/>
+      <input id="new-department" type="text" placeholder="Department"/>
+      <input id="new-face" type="file" accept="image/*" multiple/>
+      <button onclick="enrolUser()">Create User</button>
+    </div>
+    <div class="form-note" id="enrol-note"></div>
   </div>
 
   <!-- Hourly chart -->
@@ -121,11 +148,13 @@
   </div>
 </main>
 
-<!-- Token bar -->
+<!-- Login bar -->
 <div class="token-bar">
-  <label for="token-in">JWT Token:</label>
-  <input id="token-in" type="password" placeholder="Paste access token to connect…"/>
-  <button onclick="connect()">Connect</button>
+  <label for="admin-email">Admin Login:</label>
+  <input id="admin-email" type="email" placeholder="admin@company.com"/>
+  <input id="admin-password" type="password" placeholder="Password"/>
+  <button onclick="adminLogin()">Login</button>
+  <span id="profile-label" style="color:var(--muted)"></span>
   <button onclick="loadStats()" style="background:var(--surface);color:var(--muted);border:1px solid var(--border)">Refresh Stats</button>
 </div>
 
@@ -135,6 +164,12 @@
   let zoneChart   = null;
   let eventCount  = 0;
   const MAX_ROWS  = 50;
+  let accessToken = localStorage.getItem('faceguard_access') || '';
+  let currentUser = JSON.parse(localStorage.getItem('faceguard_user') || 'null');
+
+  if (currentUser) {
+    document.getElementById('profile-label').textContent = `${currentUser.email} · ${currentUser.role}`;
+  }
 
   // ── Charts ─────────────────────────────────────────────────────── //
   function initCharts() {
@@ -163,11 +198,10 @@
 
   // ── Stats ──────────────────────────────────────────────────────── //
   async function loadStats() {
-    const token = document.getElementById('token-in').value.trim();
-    if (!token) return;
+    if (!accessToken) return;
     try {
       const r = await fetch('/api/zones/stats/?hours=24', {
-        headers: { Authorization: 'Bearer ' + token }
+        headers: { Authorization: 'Bearer ' + accessToken }
       });
       const d = await r.json();
       document.getElementById('stat-total').textContent   = d.total;
@@ -180,9 +214,64 @@
       hourlyChart.update();
 
       zoneChart.data.labels   = d.by_zone.map(z => z.zone__name || 'Unknown');
-      zoneChart.data.datasets[0].data = d.by_zone.map(z => z.total);
+      zoneChart.data.datasets[0].data = d.by_zone.map(z => z.count);
       zoneChart.update();
     } catch(e) { console.error('Stats fetch failed', e); }
+  }
+
+  async function adminLogin() {
+    const email = document.getElementById('admin-email').value.trim();
+    const password = document.getElementById('admin-password').value;
+    if (!email || !password) { alert('Enter admin email and password.'); return; }
+
+    const r = await fetch('/api/auth/login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.detail || d.error || 'Login failed.'); return; }
+    if (d.user.role !== 'admin') { alert('Only admins can use this dashboard.'); return; }
+
+    accessToken = d.access;
+    currentUser = d.user;
+    localStorage.setItem('faceguard_access', accessToken);
+    localStorage.setItem('faceguard_user', JSON.stringify(currentUser));
+    document.getElementById('profile-label').textContent = `${currentUser.email} · ${currentUser.role}`;
+    loadStats();
+    connect();
+  }
+
+  async function enrolUser() {
+    if (!accessToken) { alert('Log in as admin first.'); return; }
+    const files = Array.from(document.getElementById('new-face').files);
+    if (!files.length) { alert('Upload at least one face photo.'); return; }
+
+    const fd = new FormData();
+    fd.append('name', document.getElementById('new-name').value.trim());
+    fd.append('email', document.getElementById('new-email').value.trim());
+    fd.append('password', document.getElementById('new-password').value);
+    fd.append('role', document.getElementById('new-role').value);
+    fd.append('employee_id', document.getElementById('new-employee').value.trim());
+    fd.append('department', document.getElementById('new-department').value.trim());
+    files.slice(0, 5).forEach(f => fd.append('images', f));
+
+    const note = document.getElementById('enrol-note');
+    note.textContent = 'Uploading face and creating login...';
+    const r = await fetch('/api/enrol/', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + accessToken },
+      body: fd,
+    });
+    const d = await r.json();
+    if (r.ok) {
+      note.style.color = 'var(--success)';
+      note.textContent = `${d.name} created. ${d.embeddings_saved} face embedding(s) saved.`;
+      ['new-name','new-email','new-password','new-employee','new-department','new-face'].forEach(id => document.getElementById(id).value = '');
+    } else {
+      note.style.color = 'var(--danger)';
+      note.textContent = d.error || JSON.stringify(d);
+    }
   }
 
   // ── Feed row ───────────────────────────────────────────────────── //
@@ -214,13 +303,10 @@
 
   // ── WebSocket ──────────────────────────────────────────────────── //
   function connect() {
-    const token = document.getElementById('token-in').value.trim();
-    if (!token) { alert('Paste a JWT token first.'); return; }
+    if (!accessToken) { return; }
     if (ws) ws.close();
 
-    // Pass token as query param (Channels AuthMiddleware reads cookies/session;
-    // for JWT we'll add query-param auth in a later phase — for now connect and handle 4003)
-    ws = new WebSocket(`ws://${location.host}/ws/access-feed/?token=${encodeURIComponent(token)}`);
+    ws = new WebSocket(`ws://${location.host}/ws/access-feed/?token=${encodeURIComponent(accessToken)}`);
 
     ws.onopen = () => {
       document.getElementById('ws-dot').classList.add('connected');
@@ -249,6 +335,10 @@
   }
 
   initCharts();
+  if (accessToken) {
+    loadStats();
+    connect();
+  }
 </script>
 </body>
 </html>

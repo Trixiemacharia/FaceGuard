@@ -246,7 +246,13 @@ class PersonListView(generics.ListAPIView):
 class PersonDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset           = EnrolledPerson.objects.all()
     serializer_class   = EnrolledPersonSerializer
-    permission_classes = [IsAdminOrGuard]
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        if self.request.method == 'DELETE':
+            return [permissions.IsAdminUser()]
+        return [IsAdminOrGuard()]
 
 
 class VerificationLogListView(generics.ListAPIView):

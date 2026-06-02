@@ -81,6 +81,7 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 def find_best_match(
     probe_embedding: np.ndarray,
+    embeddings=None,
 ) -> Tuple[Optional[object], float, float]:
     """
     Search all stored embeddings and return the best match.
@@ -93,7 +94,10 @@ def find_best_match(
     cfg = settings.FACE_RECOGNITION
     threshold = cfg['MATCH_THRESHOLD']
 
-    embeddings = FaceEmbedding.objects.select_related('person').filter(person__is_active=True)
+    if embeddings is None:
+        embeddings = FaceEmbedding.objects.select_related('person').filter(person__is_active=True)
+    else:
+        embeddings = embeddings.select_related('person')
 
     if not embeddings.exists():
         logger.info('No embeddings in DB to match against.')
@@ -109,9 +113,7 @@ def find_best_match(
             best_distance = dist
             best_person   = emb_obj.person
 
-    confidence = cosine_similarity(probe_embedding,
-                                   best_person.embeddings.first().get_vector()
-                                   if best_person else probe_embedding)
+    confidence = max(0.0, 1.0 - best_distance) if best_person else 0.0
 
     if best_distance > threshold:
         logger.info('No match found. Best distance=%.4f (threshold=%.4f)', best_distance, threshold)

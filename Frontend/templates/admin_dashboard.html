@@ -65,6 +65,14 @@
     .form-grid input:focus,.form-grid select:focus{border-color:var(--accent)}
     .form-grid button{background:var(--success);color:#fff;border:none;border-radius:6px;padding:.55rem .8rem;font-family:var(--font);font-size:.78rem;cursor:pointer;font-weight:bold}
     .form-note{font-size:.75rem;color:var(--muted);margin-top:.75rem;min-height:1rem}
+    .profile-panel{display:none;max-width:760px;margin:2rem auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem}
+    .profile-panel h2{color:var(--accent);font-size:1.2rem;margin-bottom:.35rem}
+    .profile-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.8rem;margin-top:1.2rem}
+    .profile-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.8rem}
+    .profile-item .label{font-size:.68rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.25rem}
+    .profile-item .value{font-size:.9rem}
+    .users-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem;grid-column:span 4}
+    .users-card h3{font-size:.8rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.8rem}
   </style>
 </head>
 <body>
@@ -81,25 +89,38 @@
 </nav>
 
 <main>
+  <section class="profile-panel" id="profile-panel">
+    <h2 id="welcome-title">Welcome</h2>
+    <p style="color:var(--muted);font-size:.85rem">Your FaceGuard profile</p>
+    <div class="profile-grid">
+      <div class="profile-item"><div class="label">Name</div><div class="value" id="profile-name">—</div></div>
+      <div class="profile-item"><div class="label">Email</div><div class="value" id="profile-email">—</div></div>
+      <div class="profile-item"><div class="label">Username</div><div class="value" id="profile-username">—</div></div>
+      <div class="profile-item"><div class="label">Role</div><div class="value" id="profile-role">—</div></div>
+      <div class="profile-item"><div class="label">Last Login</div><div class="value" id="profile-last-login">—</div></div>
+      <div class="profile-item"><div class="label">Status</div><div class="value" id="profile-status">—</div></div>
+    </div>
+  </section>
+
   <!-- Stat cards -->
-  <div class="stat-card total">
+  <div class="stat-card total admin-only">
     <div class="label">Total Events (24h)</div>
     <div class="value" id="stat-total">—</div>
   </div>
-  <div class="stat-card granted">
+  <div class="stat-card granted admin-only">
     <div class="label">Granted</div>
     <div class="value" id="stat-granted">—</div>
   </div>
-  <div class="stat-card denied">
+  <div class="stat-card denied admin-only">
     <div class="label">Denied</div>
     <div class="value" id="stat-denied">—</div>
   </div>
-  <div class="stat-card rate">
+  <div class="stat-card rate admin-only">
     <div class="label">Grant Rate</div>
     <div class="value" id="stat-rate">—</div>
   </div>
 
-  <div class="form-card">
+  <div class="form-card admin-only">
     <h3>Add User and Face</h3>
     <div class="form-grid">
       <input id="new-name" type="text" placeholder="Full name"/>
@@ -119,19 +140,31 @@
   </div>
 
   <!-- Hourly chart -->
-  <div class="chart-card">
+  <div class="chart-card admin-only">
     <h3>Hourly Access Events</h3>
     <canvas id="chart-hourly"></canvas>
   </div>
 
   <!-- Zone chart -->
-  <div class="chart-card">
+  <div class="chart-card admin-only">
     <h3>Events by Zone</h3>
     <canvas id="chart-zones"></canvas>
   </div>
 
   <!-- Live feed -->
-  <div class="feed-card">
+  <div class="users-card admin-only">
+    <h3>User Login Status</h3>
+    <table class="feed-table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th>
+        </tr>
+      </thead>
+      <tbody id="users-body"></tbody>
+    </table>
+  </div>
+
+  <div class="feed-card admin-only">
     <h3>
       Live Access Feed
       <span style="color:var(--muted);font-weight:normal" id="feed-count">0 events</span>
@@ -171,6 +204,35 @@
     document.getElementById('profile-label').textContent = `${currentUser.email} · ${currentUser.role}`;
   }
 
+  function formatDate(value) {
+    return value ? new Date(value).toLocaleString() : 'Never';
+  }
+
+  function renderProfile(user) {
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
+    document.getElementById('welcome-title').textContent = `Welcome, ${fullName}`;
+    document.getElementById('profile-name').textContent = fullName;
+    document.getElementById('profile-email').textContent = user.email || '—';
+    document.getElementById('profile-username').textContent = user.username || '—';
+    document.getElementById('profile-role').textContent = user.role || '—';
+    document.getElementById('profile-last-login').textContent = formatDate(user.last_login);
+    document.getElementById('profile-status').textContent = user.is_active ? 'Active' : 'Inactive';
+  }
+
+  function renderDashboardMode() {
+    if (!currentUser) {
+      document.getElementById('profile-panel').style.display = 'block';
+      document.getElementById('welcome-title').textContent = 'Sign in required';
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+      return;
+    }
+
+    renderProfile(currentUser);
+    const isAdmin = currentUser.role === 'admin';
+    document.getElementById('profile-panel').style.display = isAdmin ? 'none' : 'block';
+    document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? '' : 'none');
+  }
+
   // ── Charts ─────────────────────────────────────────────────────── //
   function initCharts() {
     const chartOpts = {
@@ -198,7 +260,7 @@
 
   // ── Stats ──────────────────────────────────────────────────────── //
   async function loadStats() {
-    if (!accessToken) return;
+    if (!accessToken || !currentUser || currentUser.role !== 'admin') return;
     try {
       const r = await fetch('/api/zones/stats/?hours=24', {
         headers: { Authorization: 'Bearer ' + accessToken }
@@ -217,6 +279,33 @@
       zoneChart.data.datasets[0].data = d.by_zone.map(z => z.count);
       zoneChart.update();
     } catch(e) { console.error('Stats fetch failed', e); }
+  }
+
+  async function loadUsers() {
+    if (!accessToken || !currentUser || currentUser.role !== 'admin') return;
+    try {
+      const r = await fetch('/api/auth/users/', {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      });
+      const d = await r.json();
+      if (!r.ok) return;
+      const users = Array.isArray(d.results) ? d.results : d;
+      const tbody = document.getElementById('users-body');
+      tbody.innerHTML = users.map(user => {
+        const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || '—';
+        const status = user.last_login ? 'Logged in' : 'Not logged in';
+        return `
+          <tr>
+            <td>${fullName}</td>
+            <td>${user.username || '—'}</td>
+            <td>${user.email}</td>
+            <td>${user.role}</td>
+            <td><span class="badge ${user.last_login ? 'granted' : 'denied'}">${status}</span></td>
+            <td>${formatDate(user.last_login)}</td>
+          </tr>
+        `;
+      }).join('');
+    } catch(e) { console.error('User fetch failed', e); }
   }
 
   async function adminLogin() {
@@ -238,7 +327,9 @@
     localStorage.setItem('faceguard_access', accessToken);
     localStorage.setItem('faceguard_user', JSON.stringify(currentUser));
     document.getElementById('profile-label').textContent = `${currentUser.email} · ${currentUser.role}`;
+    renderDashboardMode();
     loadStats();
+    loadUsers();
     connect();
   }
 
@@ -312,6 +403,7 @@
       document.getElementById('ws-dot').classList.add('connected');
       document.getElementById('ws-status').textContent = 'Connected';
       loadStats();
+      loadUsers();
     };
 
     ws.onmessage = (e) => {
@@ -321,6 +413,7 @@
       } else if (msg.type === 'event') {
         addRow(msg.data, true);
         loadStats();
+        loadUsers();
       }
     };
 
@@ -335,8 +428,10 @@
   }
 
   initCharts();
+  renderDashboardMode();
   if (accessToken) {
     loadStats();
+    loadUsers();
     connect();
   }
 </script>

@@ -145,7 +145,6 @@
     button:disabled { opacity: .4; cursor: not-allowed; }
 
     #btn-start  { background: var(--accent);   color: #000; font-weight: bold; }
-    #btn-verify { background: var(--success);  color: #fff; font-weight: bold; }
     #btn-stop   { background: transparent; border: 1px solid var(--muted); color: var(--muted); }
 
     /* ── Result panel ── */
@@ -245,7 +244,6 @@
   <!-- Buttons -->
   <div class="btn-row">
     <button id="btn-start">Start Camera</button>
-    <button id="btn-verify" disabled>Verify Face</button>
     <button id="btn-stop"   disabled>Stop</button>
   </div>
 
@@ -264,7 +262,6 @@
   const dot        = document.getElementById('dot');
   const statusText = document.getElementById('status-text');
   const btnStart   = document.getElementById('btn-start');
-  const btnVerify  = document.getElementById('btn-verify');
   const btnStop    = document.getElementById('btn-stop');
   const resultDiv  = document.getElementById('result');
   const emailInput = document.getElementById('email-input');
@@ -274,6 +271,7 @@
   let capturedFrames = [];
   let accessToken = localStorage.getItem('faceguard_access') || '';
   let currentUser = JSON.parse(localStorage.getItem('faceguard_user') || 'null');
+  let isVerifying = false;
 
   // ── Helpers ──────────────────────────────────────────────────────────── //
   function setStatus(msg, state = '') {
@@ -296,6 +294,7 @@
           <br>Liveness: ${data.liveness.passed ? '✓ Live' : '✗ Spoofed'}
           <br>Redirecting to dashboard…
         </div>`;
+      stopCamera('Verification matched. Camera stopped.', 'success');
       setTimeout(() => { window.location.href = data.redirect_url || '/dashboard/'; }, 900);
     } else if (data.outcome === 'denied') {
       resultDiv.classList.add('denied');
@@ -363,46 +362,9 @@
     return data;
   }
 
-  // ── Camera controls ───────────────────────────────────────────────────── //
-  btnStart.addEventListener('click', async () => {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-      video.srcObject = stream;
-      setStatus('Camera active. Position face in the guide and press VERIFY.', 'active');
-      scanLine.style.display = 'block';
-      btnStart.disabled  = true;
-      btnVerify.disabled = false;
-      btnStop.disabled   = false;
-      resultDiv.style.display = 'none';
-    } catch (err) {
-      setStatus('Camera access denied: ' + err.message, 'danger');
-    }
-  });
-
-  btnStop.addEventListener('click', () => {
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    stream = null;
-    video.srcObject = null;
-    scanLine.style.display = 'none';
-    setStatus('Camera stopped.', '');
-    btnStart.disabled  = false;
-    btnVerify.disabled = true;
-    btnStop.disabled   = true;
-  });
-
-  // ── Verify face ───────────────────────────────────────────────────────── //
-  btnVerify.addEventListener('click', async () => {
-    try {
-      if (!accessToken) {
-        setStatus('Signing in…', 'active');
-        await login();
-      }
-    } catch (err) {
-      setStatus(err.message, 'danger');
-      return;
-    }
-
-    btnVerify.disabled = true;
+  async function verifyCurrentFace() {
+    if (isVerifying) return;
+    isVerifying = true;
     resultDiv.style.display = 'none';
 
     const frames = await collectFrames(5, 200);
@@ -425,15 +387,49 @@
         showResult({ outcome: 'error', detail: JSON.stringify(data) });
       } else {
         const state = data.outcome === 'granted' ? 'success' : 'danger';
-        setStatus(data.outcome === 'granted' ? 'Verification complete.' : 'Verification failed.', state);
+        setStatus(data.outcome === 'granted' ? 'Verification complete.' : 'Verification failed. Try START again when ready.', state);
         showResult(data);
       }
     } catch (err) {
       setStatus('Network error: ' + err.message, 'danger');
       showResult({ outcome: 'error', detail: err.message });
     } finally {
-      btnVerify.disabled = false;
+      isVerifying = false;
+      if (stream) btnStart.disabled = false;
     }
+  }
+
+  function stopCamera(message = 'Camera stopped.', state = '') {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    video.srcObject = null;
+    scanLine.style.display = 'none';
+    setStatus(message, state);
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+  }
+
+  // ── Camera controls ───────────────────────────────────────────────────── //
+  btnStart.addEventListener('click', async () => {
+    try {
+      btnStart.disabled = true;
+      setStatus('Signing in…', 'active');
+      await login();
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      setStatus('Camera active. Keep your face inside the guide.', 'active');
+      scanLine.style.display = 'block';
+      btnStop.disabled = false;
+      resultDiv.style.display = 'none';
+      await verifyCurrentFace();
+    } catch (err) {
+      stopCamera(err.message, 'danger');
+    }
+  });
+
+  btnStop.addEventListener('click', () => {
+    stopCamera();
   });
 </script>
 

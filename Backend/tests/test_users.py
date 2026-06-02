@@ -76,13 +76,30 @@ class TestLogout:
 class TestRegister:
     def test_admin_can_register_user(self, admin_client):
         r = admin_client.post('/api/auth/register/', {
+            'username': 'newguard',
             'email': 'newguard@test.com',
             'first_name': 'New', 'last_name': 'Guard',
             'role': 'guard',
             'password': 'newpass123', 'password2': 'newpass123',
         }, format='json')
         assert r.status_code == 201
+        assert r.data['username'] == 'newguard'
         assert r.data['role'] == 'guard'
+
+    def test_registered_password_is_hashed(self, admin_client):
+        from users.models import User
+
+        r = admin_client.post('/api/auth/register/', {
+            'username': 'hashedviewer',
+            'email': 'hashed@test.com',
+            'first_name': 'Hashed', 'last_name': 'Viewer',
+            'role': 'viewer',
+            'password': 'newpass123', 'password2': 'newpass123',
+        }, format='json')
+        assert r.status_code == 201
+        user = User.objects.get(email='hashed@test.com')
+        assert user.password != 'newpass123'
+        assert user.check_password('newpass123')
 
     def test_non_admin_cannot_register(self, guard_client):
         r = guard_client.post('/api/auth/register/', {

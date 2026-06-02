@@ -309,14 +309,37 @@ class VerifyFaceView(APIView):
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-        # 4. Match against DB
-        person, confidence, distance = find_best_match(probe_vector)
-        wrong_user = (
-            person
-            and person.user_id
-            and person.user_id != request.user.id
-            and request.user.role not in ('admin', 'guard')
-        )
+        # 4. Match against the enrolled face for this login user.
+        own_profile = getattr(request.user, 'face_profile', None)
+        if own_profile:
+            allowed_embeddings = FaceEmbedding.objects.filter(person=own_profile, person__is_active=True)
+        elif request.user.role in ('admin', 'guard'):
+            allowed_embeddings = FaceEmbedding.objects.filter(person__is_active=True)
+        else:
+            VerificationLog.objects.create(
+                outcome      = VerificationLog.Outcome.DENIED,
+                liveness_pass= True,
+                camera_id    = camera_id,
+                requested_by = request.user,
+                error_detail = 'No enrolled face image for this user',
+            )
+            _record_zone_event(
+                user=request.user,
+                person=None,
+                outcome='denied',
+                camera_id=camera_id,
+                liveness_pass=True,
+                reason='face_not_enrolled',
+            )
+            return Response({
+                'outcome': 'denied',
+                'reason': 'face_not_enrolled',
+                'detail': 'No face image has been enrolled for this user.',
+                'liveness': {'passed': True, **liveness.__dict__},
+            }, status=status.HTTP_200_OK)
+
+        person, confidence, distance = find_best_match(probe_vector, embeddings=allowed_embeddings)
+        wrong_user = bool(own_profile and person and person.id != own_profile.id)
 
         outcome = (
             VerificationLog.Outcome.GRANTED

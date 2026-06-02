@@ -6,8 +6,8 @@ from .models import User
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'role',
-                  'is_active', 'date_joined']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role',
+                  'is_active', 'date_joined', 'last_login']
         read_only_fields = ['id', 'date_joined']
 
 
@@ -17,7 +17,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'first_name', 'last_name', 'role', 'password', 'password2']
+        fields = ['username', 'email', 'first_name', 'last_name', 'role', 'password', 'password2']
 
     def validate(self, attrs):
         if attrs['password'] != attrs.pop('password2'):

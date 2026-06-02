@@ -61,6 +61,21 @@ class TestFindBestMatch:
         assert person.id == face_embedding.person.id
         assert dist < 0.01  # near-zero distance for identical vector
 
+    def test_can_scope_match_to_specific_embeddings(self, face_embedding):
+        from recognition.matching import find_best_match
+        from recognition.models import EnrolledPerson, FaceEmbedding
+
+        other = EnrolledPerson.objects.create(name='Other Person', employee_id='EMP-002')
+        other_embedding = FaceEmbedding(person=other)
+        other_embedding.set_vector(np.array([1.0, 0.0, 0.0]))
+        other_embedding.save()
+
+        person, _, _ = find_best_match(
+            face_embedding.get_vector(),
+            embeddings=FaceEmbedding.objects.filter(person=other),
+        )
+        assert person is None
+
     def test_no_match_above_threshold(self, face_embedding):
         from recognition.matching import find_best_match
         # Use a perpendicular vector — should not match

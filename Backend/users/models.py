@@ -32,6 +32,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         VIEWER = 'viewer', 'Viewer'
 
     # Core fields
+    username   = models.CharField(max_length=150, unique=True, null=True, blank=True)
     email      = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150)
     last_name  = models.CharField(max_length=150)

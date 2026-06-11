@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/',       include('zones.urls')),
     path('api/',       include('reports.urls')),
     path('',           TemplateView.as_view(template_name='index.html'),     name='home'),
+    path('signup/',    TemplateView.as_view(template_name='signup.html'),    name='signup'),
     path('dashboard/', TemplateView.as_view(template_name='admin_dashboard.html'), name='dashboard'),
     path('guard/',     TemplateView.as_view(template_name='guard.html'),     name='guard'),
     path('enrol/',     TemplateView.as_view(template_name='enrol_person.html'), name='enrol'),

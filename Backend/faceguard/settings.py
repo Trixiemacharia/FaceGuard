@@ -237,7 +237,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Face recognition settings
 FACE_RECOGNITION = {
-    'MODEL': 'VGG-Face',                 # DeepFace model
+    'MODEL': 'Facenet512',                 #TensorFlow
     'DETECTOR_BACKEND': 'opencv',         # opencv | ssd | mtcnn | retinaface
     'DISTANCE_METRIC': 'cosine',
     'MATCH_THRESHOLD': 0.40,             # Cosine distance threshold (lower = stricter)
@@ -248,7 +248,7 @@ FACE_RECOGNITION = {
         'REQUIRED_BLINKS': 1,
         'MOTION_THRESHOLD': 500,         # Pixel change for motion detection
     },
-    'EMBEDDING_DIM': 4096,               # VGG-Face embedding size
+    'EMBEDDING_DIM': 512,               # VGG-Face embedding size
     'MAX_ENROL_IMAGES': 5,               # Max images per person during enrolment
 }
 

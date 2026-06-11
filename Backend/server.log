@@ -1,0 +1,12 @@
+[INFO] 2026-06-06 18:02:12,234 autoreload Watching for file changes with StatReloader
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1780769099.642849   64433 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+I0000 00:00:1780769099.786214   64433 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1780769102.681435   64433 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1780769104.583975   64433 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)
+W0000 00:00:1780769105.109694   64433 cpu_allocator_impl.cc:82] Allocation of 411041792 exceeds 10% of free system memory.
+W0000 00:00:1780769105.496566   64433 cpu_allocator_impl.cc:82] Allocation of 411041792 exceeds 10% of free system memory.
+W0000 00:00:1780769105.686693   64433 cpu_allocator_impl.cc:82] Allocation of 411041792 exceeds 10% of free system memory.
+W0000 00:00:1780769107.808136   64433 cpu_allocator_impl.cc:82] Allocation of 411041792 exceeds 10% of free system memory.

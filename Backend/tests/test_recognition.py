@@ -200,6 +200,72 @@ class TestEnrolAPI:
         assert r.status_code == 422
 
 
+@pytest.mark.django_db
+class TestSelfEnrolAPI:
+    def _make_image_file(self):
+        import cv2
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        _, buf = cv2.imencode('.jpg', frame)
+        img = io.BytesIO(buf.tobytes())
+        img.name = 'face.jpg'
+        return img
+
+    @patch('recognition.views.extract_embedding')
+    def test_self_enrol_success_creates_user_face_profile_and_tokens(self, mock_embed, api_client):
+        from recognition.models import EnrolledPerson, FaceEmbedding
+        from users.models import User
+
+        mock_embed.return_value = np.random.rand(512).astype(np.float32)
+        r = api_client.post('/api/self-enrol/', {
+            'name': 'Self User',
+            'email': 'self@test.com',
+            'password': 'selfpass123',
+            'password2': 'selfpass123',
+            'department': 'Security',
+            'images': self._make_image_file(),
+        }, format='multipart')
+
+        assert r.status_code == 201
+        assert r.data['success'] is True
+        assert 'access' in r.data
+        assert r.data['redirect_url'] == '/dashboard/'
+        user = User.objects.get(email='self@test.com')
+        assert user.role == 'viewer'
+        assert user.check_password('selfpass123')
+        person = EnrolledPerson.objects.get(user=user)
+        assert person.name == 'Self User'
+        assert FaceEmbedding.objects.filter(person=person).count() == 1
+
+    @patch('recognition.views.extract_embedding')
+    def test_self_enrol_no_valid_face_rolls_back_user(self, mock_embed, api_client):
+        from users.models import User
+
+        mock_embed.side_effect = ValueError('No face detected')
+        r = api_client.post('/api/self-enrol/', {
+            'name': 'No Face',
+            'email': 'noface@test.com',
+            'password': 'selfpass123',
+            'password2': 'selfpass123',
+            'images': self._make_image_file(),
+        }, format='multipart')
+
+        assert r.status_code == 422
+        assert r.data['success'] is False
+        assert not User.objects.filter(email='noface@test.com').exists()
+
+    def test_self_enrol_duplicate_email_returns_400(self, api_client, viewer_user):
+        r = api_client.post('/api/self-enrol/', {
+            'name': 'Duplicate User',
+            'email': viewer_user.email,
+            'password': 'selfpass123',
+            'password2': 'selfpass123',
+            'images': self._make_image_file(),
+        }, format='multipart')
+
+        assert r.status_code == 400
+        assert r.data['success'] is False
+
+
 # ── Verify face API tests ─────────────────────────────────────────── #
 
 @pytest.mark.django_db

@@ -1,6 +1,11 @@
+import logging
+
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import User
+
+logger = logging.getLogger(__name__)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -39,6 +44,24 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        data = super().validate(attrs)
+        try:
+            data = super().validate(attrs)
+        except AuthenticationFailed:
+            email = attrs.get(self.username_field, '')
+            request = self.context.get('request')
+            logger.warning('Failed password login attempt for %s', email or 'unknown user')
+            try:
+                from logs.models import SystemLog
+                SystemLog.objects.create(
+                    level=SystemLog.Level.WARNING,
+                    source='auth',
+                    message=f'Failed password login attempt for {email or "unknown user"}',
+                    user=User.objects.filter(email=email).first() if email else None,
+                )
+            except Exception as exc:
+                logger.warning('Could not persist failed login event: %s', exc)
+            if request:
+                request.failed_login_flagged = True
+            raise
         data['user'] = UserSerializer(self.user).data
         return data

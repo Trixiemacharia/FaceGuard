@@ -39,6 +39,25 @@ class EnrolmentSerializer(serializers.Serializer):
         return attrs
 
 
+class SelfEnrolmentSerializer(serializers.Serializer):
+    name        = serializers.CharField(max_length=255)
+    email       = serializers.EmailField()
+    password    = serializers.CharField(write_only=True, min_length=8)
+    password2   = serializers.CharField(write_only=True, min_length=8)
+    department  = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        from users.models import User
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError('An account with this email already exists.')
+        return value
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs.pop('password2'):
+            raise serializers.ValidationError({'password': 'Passwords do not match.'})
+        return attrs
+
+
 class VerifyFaceSerializer(serializers.Serializer):
     frames    = serializers.ListField(
         child=serializers.CharField(),

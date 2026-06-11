@@ -11,12 +11,14 @@ import os
 import tempfile
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .liveness import check_liveness, decode_base64_frames
 from .matching import extract_embedding, find_best_match
@@ -24,9 +26,11 @@ from .models import EnrolledPerson, FaceEmbedding, VerificationLog
 from .serializers import (
     EnrolledPersonSerializer,
     EnrolmentSerializer,
+    SelfEnrolmentSerializer,
     VerifyFaceSerializer,
     VerificationLogSerializer,
 )
+from users.serializers import UserSerializer
 
 logger = logging.getLogger('recognition')
 
@@ -216,6 +220,113 @@ class EnrolView(APIView):
             'errors':           errors,
             'created':          created,
         }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class SelfEnrolView(APIView):
+    """
+    POST /api/self-enrol/
+    Body (multipart): name, email, password, password2, department, images[] (1-5 files)
+    Public self-service enrollment for first-time users.
+    """
+    parser_classes     = [MultiPartParser, FormParser]
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = SelfEnrolmentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {'success': False, 'message': 'Registration failed.', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        images = request.FILES.getlist('images')
+        if not images:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'At least one face image is required.',
+                    'errors': {'images': ['This field is required.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        max_images = settings.FACE_RECOGNITION['MAX_ENROL_IMAGES']
+        if len(images) > max_images:
+            return Response(
+                {'success': False, 'message': f'Maximum {max_images} face images are allowed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        first_name, last_name = _split_name(data['name'])
+        errors = []
+
+        try:
+            with transaction.atomic():
+                from users.models import User
+                user = User.objects.create_user(
+                    email=data['email'],
+                    password=data['password'],
+                    first_name=first_name,
+                    last_name=last_name,
+                    role=User.Role.VIEWER,
+                )
+                person = EnrolledPerson.objects.create(
+                    user=user,
+                    name=data['name'],
+                    department=data.get('department', ''),
+                    enrolled_by=None,
+                    notes='Self-service enrollment',
+                )
+
+                embeddings_saved = 0
+                for img_file in images:
+                    suffix = os.path.splitext(img_file.name)[1] or '.jpg'
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        for chunk in img_file.chunks():
+                            tmp.write(chunk)
+                        tmp_path = tmp.name
+
+                    try:
+                        vector = extract_embedding(tmp_path)
+                        emb = FaceEmbedding(person=person, model_name=settings.FACE_RECOGNITION['MODEL'])
+                        emb.set_vector(vector)
+                        emb.image.save(img_file.name, img_file, save=False)
+                        emb.save()
+                        embeddings_saved += 1
+                    except (ValueError, RuntimeError) as exc:
+                        errors.append({'file': img_file.name, 'error': str(exc)})
+                    finally:
+                        os.unlink(tmp_path)
+
+                if embeddings_saved == 0:
+                    raise ValueError('No valid faces found in the captured images.')
+        except ValueError as exc:
+            logger.warning('Self-enrollment failed for %s: %s', data.get('email'), exc)
+            return Response(
+                {
+                    'success': False,
+                    'message': str(exc),
+                    'errors': {'images': errors or [str(exc)]},
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                'success': True,
+                'message': 'Registration successful. Redirecting to dashboard.',
+                'person_id': person.id,
+                'embeddings_saved': embeddings_saved,
+                'errors': errors,
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'user': UserSerializer(user).data,
+                'redirect_url': '/dashboard/',
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ─────────────────────────────── #

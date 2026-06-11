@@ -146,6 +146,29 @@
 
     #btn-start  { background: var(--accent);   color: #000; font-weight: bold; }
     #btn-stop   { background: transparent; border: 1px solid var(--muted); color: var(--muted); }
+    .mode-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .8rem;
+      margin-bottom: 1.2rem;
+    }
+    .mode-link {
+      display: block;
+      text-align: center;
+      text-decoration: none;
+      padding: .75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: .85rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .mode-link.active {
+      background: rgba(0,212,255,.12);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
 
     /* ── Result panel ── */
     #result {
@@ -218,6 +241,11 @@
 </header>
 
 <div class="card">
+
+  <div class="mode-row">
+    <a class="mode-link" href="/signup/">Sign Up</a>
+    <a class="mode-link active" href="/">Log In</a>
+  </div>
 
   <!-- Login input -->
   <div class="token-section">

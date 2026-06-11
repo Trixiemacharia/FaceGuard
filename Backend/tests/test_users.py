@@ -23,6 +23,8 @@ class TestLogin:
             'email': 'admin@test.com', 'password': 'wrongpassword'
         }, format='json')
         assert r.status_code == 401
+        from logs.models import SystemLog
+        assert SystemLog.objects.filter(source='auth', user=admin_user, level='warning').exists()
 
     def test_login_unknown_email(self, api_client):
         r = api_client.post('/api/auth/login/', {
